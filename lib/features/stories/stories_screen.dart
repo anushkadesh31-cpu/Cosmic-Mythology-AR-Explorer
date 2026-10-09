@@ -2,63 +2,18 @@ import 'package:flutter/material.dart';
 import '../../core/theme/cosmic_colors.dart';
 import '../../core/responsive/responsive_utils.dart';
 import '../../core/widgets/glass_card.dart';
+import '../../core/cosmic_core/domain/story/story.dart';
+import '../../core/cosmic_core/data/story/simple_story_catalog.dart';
+import '../../core/cosmic_core/domain/story/story_repository.dart';
+import 'story_detail_screen.dart';
 
 /// Cultural Celestial Storytelling Library.
 class StoriesScreen extends StatelessWidget {
-  StoriesScreen({super.key});
+  StoriesScreen({super.key, StoryRepository? repository})
+      : _repository = repository ?? SimpleStoryCatalog();
 
-  final List<_StoryItem> _stories = [
-    _StoryItem(
-      title: 'The Seven Mothers of Kartikeya',
-      culture: 'Vedic Astronomy',
-      tradition: 'Nakshatra Krittika',
-      readTime: '4 min read',
-      hasAudio: true,
-      summary:
-          'How the cluster of Krittika (the Pleiades) nurtured the warrior deity of wisdom and light, protecting the cosmic balance.',
-      tagColor: CosmicColors.cosmicViolet,
-    ),
-    _StoryItem(
-      title: 'The Silver River of Star-Crossed Lovers',
-      culture: 'East Asian Mythos',
-      tradition: 'Qixi / Tanabata',
-      readTime: '6 min read',
-      hasAudio: true,
-      summary:
-          'Zhinü the Weaver Star and Niulang the Cowherd separated by the celestial Milky Way, united once a year by a bridge of magpies.',
-      tagColor: CosmicColors.etherealCyan,
-    ),
-    _StoryItem(
-      title: 'The Great Bear and the Celestial Hunters',
-      culture: 'Indigenous Americas',
-      tradition: 'Haudenosaunee / Iroquois',
-      readTime: '5 min read',
-      hasAudio: false,
-      summary:
-          'Three hunters track the immortal Great Bear across the northern sky; in autumn, its blood turns the forest leaves scarlet.',
-      tagColor: CosmicColors.starlightGold,
-    ),
-    _StoryItem(
-      title: 'Maui\'s Magic Fishhook',
-      culture: 'Polynesian Navigators',
-      tradition: 'Wayfinding Celestial Lore',
-      readTime: '5 min read',
-      hasAudio: true,
-      summary:
-          'How demigod Maui pulled the Pacific islands from the oceanic depths using the celestial hook immortalized as Scorpius.',
-      tagColor: CosmicColors.stellarCyan,
-    ),
-    _StoryItem(
-      title: 'The Charioteer and the Solar Steeds',
-      culture: 'Greco-Roman',
-      tradition: 'Hellenic Astromythology',
-      readTime: '7 min read',
-      hasAudio: false,
-      summary:
-          'Phaethon\'s fateful flight in Apollo\'s celestial chariot, scorching the heavens and creating the desert wastes of the Earth.',
-      tagColor: CosmicColors.supernovaAmber,
-    ),
-  ];
+  // Repository providing story data.
+  final StoryRepository _repository;
 
       @override
 Widget build(BuildContext context) {
@@ -96,8 +51,34 @@ Widget build(BuildContext context) {
 
           const SizedBox(height: 24),
 
-          // Story Catalog List
-          ..._stories.map((story) => _buildStoryCard(story)),
+          // Story Catalog List loaded asynchronously
+          FutureBuilder<List<Story>>(
+            future: _repository.getAllStories(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError) {
+                return const Center(child: Text('Failed to load stories'));
+              }
+              final stories = snapshot.data ?? const [];
+              if (stories.isEmpty) {
+                return const Center(child: Text('No stories available'));
+              }
+              return Column(
+                children: stories
+                    .map((story) => GestureDetector(
+                          onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) =>
+                                      StoryDetailScreen(story: story))),
+                          child: _buildStoryCardFromStory(story),
+                        ))
+                    .toList(),
+              );
+            },
+          ),
         ],
       ),
     );
@@ -210,7 +191,7 @@ Widget build(BuildContext context) {
     );
   }
 
-  Widget _buildStoryCard(_StoryItem story) {
+  Widget _buildStoryCardFromStory(Story story) {
     return GlassCard(
       margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(18),
@@ -224,46 +205,28 @@ Widget build(BuildContext context) {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: story.tagColor.withValues(alpha: 0.15),
+                  color: CosmicColors.cosmicViolet.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: story.tagColor.withValues(alpha: 0.35),
+                    color: CosmicColors.cosmicViolet.withValues(alpha: 0.35),
                     width: 0.8,
                   ),
                 ),
                 child: Text(
-                  story.culture,
-                  style: TextStyle(
+                  story.traditionId,
+                  style: const TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
-                    color: story.tagColor,
+                    color: CosmicColors.cosmicViolet,
                   ),
                 ),
               ),
-              Row(
-                children: [
-                  if (story.hasAudio) ...[
-                    const Icon(
-                      Icons.headphones_rounded,
-                      size: 14,
-                      color: CosmicColors.celestialMuted,
-                    ),
-                    const SizedBox(width: 6),
-                  ],
-                  Text(
-                    story.readTime,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: CosmicColors.stardustSubtle,
-                    ),
-                  ),
-                ],
-              ),
+              const SizedBox(), // placeholder for read time/audio indicator
             ],
           ),
           const SizedBox(height: 10),
           Text(
-            story.title,
+            story.title.defaultText,
             style: const TextStyle(
               fontSize: 17,
               fontWeight: FontWeight.w700,
@@ -272,16 +235,7 @@ Widget build(BuildContext context) {
           ),
           const SizedBox(height: 2),
           Text(
-            story.tradition,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              color: CosmicColors.etherealCyan,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            story.summary,
+            story.summary.defaultText,
             style: const TextStyle(
               fontSize: 13,
               color: CosmicColors.celestialMuted,
@@ -294,22 +248,4 @@ Widget build(BuildContext context) {
   }
 }
 
-class _StoryItem {
-  final String title;
-  final String culture;
-  final String tradition;
-  final String readTime;
-  final bool hasAudio;
-  final String summary;
-  final Color tagColor;
-
-  const _StoryItem({
-    required this.title,
-    required this.culture,
-    required this.tradition,
-    required this.readTime,
-    required this.hasAudio,
-    required this.summary,
-    required this.tagColor,
-  });
-}
+// Removed the previous hard‑coded _StoryItem model; data now comes from the domain Story model.
