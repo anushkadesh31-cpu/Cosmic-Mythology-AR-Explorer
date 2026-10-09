@@ -52,13 +52,13 @@ class SimpleStoryCatalog implements StoryRepository {
         authorOrInstitution: 'Ptolemy',
         publicationTitle: "Almagest",
         publicationYear: 150,
-        doiOrIsbn: '',
-        archiveUrl: '',
+        doiOrIsbn: null,
+        archiveUrl: null,
         citationSnippet: 'Almagest Book VII, chapter 5',
       ),
       verificationStatus: ResearchVerification(
-        status: VerificationStatus.primarySourceVerified,
-        reviewerNotes: 'Verified in Almagest Book VII, chapter 5.',
+        status: VerificationStatus.underReview,
+        reviewerNotes: 'Contains creative narrative prose; not a direct quotation from Almagest.',
         lastVerifiedDate: DateTime.utc(2026, 1, 1),
       ),
     );

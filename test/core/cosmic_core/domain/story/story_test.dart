@@ -79,5 +79,13 @@ void main() {
       final all = await catalog.getAllStories();
       expect(() => all.add(all.first), throwsA(isA<UnsupportedError>()));
     });
+    test('attribution and verification fields are correct', () async {
+      final catalog = SimpleStoryCatalog();
+      final story = (await catalog.getAllStories()).first;
+      expect(story.attribution.doiOrIsbn, isNull);
+      expect(story.attribution.archiveUrl, isNull);
+      expect(story.verificationStatus.reviewerNotes,
+          contains('creative narrative prose'));
+    });
   });
 }
