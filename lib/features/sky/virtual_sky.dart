@@ -50,12 +50,37 @@ class VirtualSky extends StatefulWidget {
   static const double defaultTouchRadius = 28.0;
 
   @override
-  State<VirtualSky> createState() => _VirtualSkyState();
+  State<VirtualSky> createState() => VirtualSkyState();
 }
 
-class _VirtualSkyState extends State<VirtualSky> {
+class VirtualSkyState extends State<VirtualSky> {
   int _currentRequestId = 0;
+  // Camera offsets in degrees (azimuth 0‑360, altitude +/- any). They are applied before projection.
+  double _azimuthOffset = 0.0;
+  double _altitudeOffset = 0.0;
   List<VisibleObject>? _visibleStars;
+  // Expose a method to programmatically center the view on a given VisibleObject.
+  void centerOn(VisibleObject target) {
+    // Desired normalized center is (0.5, 0.5).
+    // Compute offsets that map target's az/alt to that centre.
+    // Azimuth offset (degrees) = (180 - target.azimuth) modulo 360.
+    // Altitude offset (degrees) = 45 - target.altitude (clamped to -90..90).
+    final double newAzOffset = (180.0 - target.azimuth) % 360.0;
+    final double newAltOffset = (45.0 - target.altitude).clamp(-90.0, 90.0);
+    setState(() {
+      _azimuthOffset = newAzOffset;
+      _altitudeOffset = newAltOffset;
+    });
+  }
+
+  /// Retrieves a visible object by its stable identifier, if currently rendered.
+  VisibleObject? getVisibleObjectById(String id) {
+    if (_visibleStars == null) return null;
+    for (final obj in _visibleStars!) {
+      if (obj.id == id) return obj;
+    }
+    return null;
+  }
   bool _isLoading = false;
   Object? _error;
 
@@ -123,12 +148,27 @@ class _VirtualSkyState extends State<VirtualSky> {
       _isLoading = false;
       _error = null;
     });
+
     _reconcileSelection(stars);
   }
 
-  void _loadStars() {
-    final requestId = ++_currentRequestId;
+  void _handlePanUpdate(DragUpdateDetails details, double width, double height) {
+    // Convert pixel drag to angular offsets.
+    // Horizontal drag changes azimuth (0-360).
+    // Vertical drag changes altitude offset (clamped to reasonable range).
+    final delta = details.delta;
+    // proportion of the drag relative to widget size
+    final azimuthDelta = (delta.dx / width) * 360.0;
+    final altitudeDelta = -(delta.dy / height) * 90.0; // dragging up raises altitude
+    setState(() {
+      _azimuthOffset = (_azimuthOffset + azimuthDelta) % 360.0;
+      _altitudeOffset = (_altitudeOffset + altitudeDelta).clamp(-90.0, 90.0);
+    });
+  }
 
+  void _loadStars() {
+
+    final requestId = ++_currentRequestId;
     // 1. Synchronous path: if repository supports immediate access without frame delay
     bool isSync = widget.repository is SimpleStarCatalog;
     if (!isSync) {
@@ -197,8 +237,8 @@ class _VirtualSkyState extends State<VirtualSky> {
 
     for (final star in stars) {
       final (normX, normY) = SkyProjection.toNormalized(
-        azimuth: star.azimuth,
-        altitude: star.altitude,
+        azimuth: (star.azimuth + _azimuthOffset) % 360,
+        altitude: star.altitude + _altitudeOffset,
       );
       final dx = normX * width;
       final dy = normY * height;
@@ -231,17 +271,19 @@ class _VirtualSkyState extends State<VirtualSky> {
   @override
   Widget build(BuildContext context) {
     final stars = _visibleStars ?? const [];
+
     final activeSelectionColor = widget.selectionColor ?? const Color(0xFF64FFDA);
 
     return LayoutBuilder(
       builder: (context, constraints) {
         return GestureDetector(
-          behavior: HitTestBehavior.opaque,
+                     behavior: HitTestBehavior.translucent,
           onTapUp: (details) => _handleTap(
             details.localPosition,
             constraints.maxWidth,
             constraints.maxHeight,
           ),
+          onPanUpdate: (details) => _handlePanUpdate(details, constraints.maxWidth, constraints.maxHeight),
           child: Stack(
             children: [
               CustomPaint(
@@ -253,6 +295,8 @@ class _VirtualSkyState extends State<VirtualSky> {
                   height: constraints.maxHeight,
                   selectedObjectId: widget.selectedObjectId,
                   selectionColor: activeSelectionColor,
+                  azimuthOffset: _azimuthOffset,
+                  altitudeOffset: _altitudeOffset,
                   showConstellationLines: widget.showConstellationLines,
                   lineSegments: _getSegments(),
                   constellationLineColor: widget.constellationLineColor ??
@@ -319,6 +363,9 @@ class SkyPainter extends CustomPainter {
   final bool showConstellationLines;
   final List<ConstellationVectorSegment> lineSegments;
   final Color constellationLineColor;
+  // Camera offsets in degrees
+  final double azimuthOffset;
+  final double altitudeOffset;
 
   SkyPainter({
     required this.visibleStars,
@@ -329,10 +376,13 @@ class SkyPainter extends CustomPainter {
     this.showConstellationLines = true,
     this.lineSegments = const [],
     this.constellationLineColor = const Color(0x5564FFDA),
+    this.azimuthOffset = 0.0,
+    this.altitudeOffset = 0.0,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
+
     final backgroundPaint = Paint()..color = const Color(0xFF0A0A1A);
     canvas.drawRect(Rect.fromLTWH(0, 0, width, height), backgroundPaint);
 
@@ -356,12 +406,12 @@ class SkyPainter extends CustomPainter {
         if (starA == null || starB == null) continue;
 
         final (normXa, normYa) = SkyProjection.toNormalized(
-          azimuth: starA.azimuth,
-          altitude: starA.altitude,
+          azimuth: (starA.azimuth + azimuthOffset) % 360,
+          altitude: starA.altitude + altitudeOffset,
         );
         final (normXb, normYb) = SkyProjection.toNormalized(
-          azimuth: starB.azimuth,
-          altitude: starB.altitude,
+          azimuth: (starB.azimuth + azimuthOffset) % 360,
+          altitude: starB.altitude + altitudeOffset,
         );
 
         if (normXa.isNaN || normYa.isNaN || normXb.isNaN || normYb.isNaN) continue;
@@ -382,8 +432,8 @@ class SkyPainter extends CustomPainter {
     // 2. Render visible star nodes
     for (final star in visibleStars) {
       final (normX, normY) = SkyProjection.toNormalized(
-        azimuth: star.azimuth,
-        altitude: star.altitude,
+        azimuth: (star.azimuth + azimuthOffset) % 360,
+        altitude: star.altitude + altitudeOffset,
       );
       final dx = normX * width;
       final dy = normY * height;

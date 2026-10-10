@@ -5,6 +5,7 @@ import '../../core/widgets/glass_card.dart';
 import '../../core/cosmic_core/domain/observer/observer.dart';
 import '../../core/cosmic_core/domain/time/observation_time.dart';
 import '../../core/cosmic_core/domain/celestial/celestial_repository.dart';
+import '../../core/cosmic_core/domain/celestial/celestial_object.dart';
 import '../../core/cosmic_core/data/catalog/simple_star_catalog.dart';
 import '../../core/cosmic_core/visibility/visibility_service.dart';
 import '../../core/cosmic_core/visibility/visible_object.dart';
@@ -47,6 +48,12 @@ class _SkyScreenState extends State<SkyScreen> {
   bool _showConstellationLines = true;
   bool _showMythologyArt = false;
   bool _nightVisionMode = false;
+  // Search state
+  final TextEditingController _searchController = TextEditingController();
+  List<CelestialObject> _searchResults = [];
+  bool _showSearchOverlay = false;
+  // Key to access VirtualSky state for camera centering
+  final GlobalKey<VirtualSkyState> _skyKey = GlobalKey<VirtualSkyState>();
 
   @override
   void initState() {
@@ -59,7 +66,13 @@ class _SkyScreenState extends State<SkyScreen> {
   }
 
   @override
-  void didUpdateWidget(covariant SkyScreen oldWidget) {
+void dispose() {
+  _searchController.dispose();
+  super.dispose();
+}
+
+@override
+void didUpdateWidget(covariant SkyScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.observer != null &&
         (widget.observer!.latitude != oldWidget.observer?.latitude ||
@@ -98,6 +111,7 @@ class _SkyScreenState extends State<SkyScreen> {
         // 1. Pure-Dart Virtual Sky Rendering with Real Catalog Selection
         Positioned.fill(
           child: VirtualSky(
+            key: _skyKey,
             observer: _observer,
             observationTime: _observationTime,
             repository: _repository,
@@ -122,11 +136,7 @@ class _SkyScreenState extends State<SkyScreen> {
         ),
 
         // 3. Minimal Viewport Floating Controls (Right side)
-        Positioned(
-          top: 80,
-          right: 16,
-          child: _buildMinimalControls(accentColor),
-        ),
+
 
         // 4. Bottom HUD: Target Telemetry & Mythology Card
         Positioned(
@@ -135,6 +145,20 @@ class _SkyScreenState extends State<SkyScreen> {
           bottom: 110,
           child: _buildTargetCard(_selectedObject, accentColor),
         ),
+        // Search overlay – appears above other UI when active
+// Minimal controls overlay (moved above target card)
+Positioned(
+  top: 80,
+  right: 16,
+  child: _buildMinimalControls(accentColor),
+),
+        if (_showSearchOverlay)
+          Positioned.fill(
+            child: Padding(
+              padding: EdgeInsets.only(top: 120, left: 16, right: 16),
+              child: _buildSearchOverlay(),
+            ),
+          ),
       ],
     );
 
@@ -154,7 +178,7 @@ class _SkyScreenState extends State<SkyScreen> {
         );
     }
   }
-   
+
 
   Widget _buildCompassHud(Color accentColor) {
     return GlassCard(
@@ -253,6 +277,18 @@ class _SkyScreenState extends State<SkyScreen> {
             });
           },
         ),
+        // Search button – opens search overlay
+        _buildHudIconButton(
+          icon: Icons.search,
+          label: 'Search',
+          isActive: _showSearchOverlay,
+          accentColor: accentColor,
+          onTap: () {
+            setState(() {
+              _showSearchOverlay = true;
+            });
+          },
+        ),
         const SizedBox(height: 10),
         _buildHudIconButton(
           icon: Icons.remove_red_eye_rounded,
@@ -276,35 +312,36 @@ class _SkyScreenState extends State<SkyScreen> {
     required Color accentColor,
     required VoidCallback onTap,
   }) {
-    return Tooltip(
-      message: label,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: onTap,
-          child: Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: isActive
-                  ? accentColor.withValues(alpha: 0.25)
-                  : CosmicColors.spaceBlack.withValues(alpha: 0.5),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: isActive ? accentColor.withValues(alpha: 0.8) : CosmicColors.glassBorder,
-                width: 1,
+      return Tooltip(
+        message: label,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: onTap,
+                child: Container(
+
+                  width: 44,
+                  height: 44,
+              decoration: BoxDecoration(
+                color: isActive
+                    ? accentColor.withValues(alpha: 0.25)
+                    : CosmicColors.spaceBlack.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: isActive ? accentColor.withValues(alpha: 0.8) : CosmicColors.glassBorder,
+                  width: 1,
+                ),
               ),
-            ),
-            child: Icon(
-              icon,
-              size: 20,
-              color: isActive ? accentColor : CosmicColors.celestialMuted,
+              child: Icon(
+                icon,
+                size: 20,
+                color: isActive ? accentColor : CosmicColors.celestialMuted,
+              ),
             ),
           ),
         ),
-      ),
-    );
+      );
   }
 
   Widget _buildTargetCard(VisibleObject? target, Color accentColor) {
@@ -458,4 +495,111 @@ class _SkyScreenState extends State<SkyScreen> {
       ),
     );
   }
+  // ===== Search Overlay and Logic =====
+
+  /// Builds the search overlay containing a text field and results list.
+  Widget _buildSearchOverlay() {
+    return Material(
+      color: Colors.transparent,
+      child: Column(
+        children: [
+          // Search input field
+          TextField(
+            controller: _searchController,
+            autofocus: true,
+            style: const TextStyle(color: CosmicColors.starWhite),
+            decoration: InputDecoration(
+              hintText: 'Search stars…',
+              hintStyle: const TextStyle(color: CosmicColors.celestialMuted),
+              filled: true,
+              fillColor: CosmicColors.spaceBlack.withValues(alpha: 0.6),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              suffixIcon: IconButton(
+                icon: const Icon(Icons.close, color: CosmicColors.celestialMuted),
+                onPressed: () {
+                  setState(() {
+                    _showSearchOverlay = false;
+                    _searchController.clear();
+                    _searchResults = [];
+                  });
+                },
+              ),
+            ),
+            onChanged: (value) => _performSearch(value),
+          ),
+          const SizedBox(height: 8),
+          // Results list
+          Expanded(
+            child: _searchResults.isEmpty
+                ? Center(
+                    child: Text(
+                      _searchController.text.isEmpty ? 'Enter a name to search' : 'No matches',
+                      style: const TextStyle(color: CosmicColors.celestialMuted),
+                    ),
+                  )
+                : ListView.builder(
+                    itemCount: _searchResults.length,
+                    itemBuilder: (context, index) {
+                      final result = _searchResults[index];
+                      return ListTile(
+                        title: Text(result.name, style: const TextStyle(color: CosmicColors.starWhite)),
+                        subtitle: result.alternateNames != null && result.alternateNames!.isNotEmpty
+                            ? Text('Aliases: ${result.alternateNames!.join(', ')}', style: const TextStyle(color: CosmicColors.celestialMuted))
+                            : null,
+                        onTap: () => _onSearchResultTap(result),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Executes a search against the catalog using the provided query.
+  void _performSearch(String query) async {
+    if (query.trim().isEmpty) {
+      setState(() {
+        _searchResults = [];
+      });
+      return;
+    }
+    try {
+      final results = await _repository.search(query);
+      setState(() {
+        _searchResults = results;
+      });
+    } catch (e) {
+      setState(() {
+        _searchResults = [];
+      });
+    }
+  }
+
+  /// Handles a tap on a search result: centers camera if star is visible, otherwise shows a notice.
+  void _onSearchResultTap(CelestialObject result) {
+    final visible = _skyKey.currentState?.getVisibleObjectById(result.id);
+    if (visible != null) {
+      setState(() {
+        _selectedObject = visible;
+        _showSearchOverlay = false;
+        _searchController.clear();
+        _searchResults = [];
+      });
+      _skyKey.currentState?.centerOn(visible);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${result.name} is not currently visible.'), duration: const Duration(seconds: 3)),
+      );
+      setState(() {
+        _showSearchOverlay = false;
+        _searchController.clear();
+        _searchResults = [];
+      });
+    }
+  }
+
 }

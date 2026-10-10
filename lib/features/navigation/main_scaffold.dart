@@ -11,6 +11,8 @@ import '../stories/stories_screen.dart';
 import '../quests/quests_screen.dart';
 import '../profile/profile_screen.dart';
 import '../settings/settings_screen.dart';
+import '../../core/cosmic_core/domain/time/observation_time.dart';
+
 
 /// Enum representing the 7 application sections.
 enum CosmicSection {
@@ -212,7 +214,7 @@ class _MainScaffoldState extends State<MainScaffold> {
           onOpenQuests: () => _navigateTo(CosmicSection.quests),
         ),
       CosmicSection.explore => ExploreScreen(),
-      CosmicSection.sky => SkyScreen(),
+             CosmicSection.sky => SkyScreen(observationTime: ObservationTime(DateTime.utc(2026, 1, 1, 4, 0))),
       CosmicSection.stories => StoriesScreen(),
       CosmicSection.quests => QuestsScreen(),
       CosmicSection.profile => ProfileScreen(),
